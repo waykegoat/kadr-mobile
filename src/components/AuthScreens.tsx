@@ -108,25 +108,26 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
     });
   };
 
+  const demoAccount = accounts[0] || {
+    name: 'Иван Петров',
+    email: 'ivan@example.com',
+    phone: '+7 (900) 123-45-67',
+    password: 'password123',
+    bonuses: 420,
+    notificationsEnabled: true,
+  };
+
   const handleDemoLogin = () => {
-    const demo = accounts[0] || {
-      name: 'Иван Петров',
-      email: 'ivan@example.com',
-      phone: '+7 (900) 123-45-67',
-      password: 'password123',
-      bonuses: 420,
-      notificationsEnabled: true,
-    };
-    setEmail(demo.email);
-    setPassword(demo.password);
+    setEmail(demoAccount.email);
+    setPassword(demoAccount.password);
     setErrors({});
     setToastError(null);
     onSuccess({
-      name: demo.name,
-      email: demo.email,
-      phone: demo.phone,
-      bonuses: demo.bonuses ?? 420,
-      notificationsEnabled: demo.notificationsEnabled ?? true,
+      name: demoAccount.name,
+      email: demoAccount.email,
+      phone: demoAccount.phone,
+      bonuses: demoAccount.bonuses ?? 420,
+      notificationsEnabled: demoAccount.notificationsEnabled ?? true,
     });
   };
 
@@ -302,7 +303,9 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
               </div>
               <div>
                 <div className="text-xs font-bold text-[#1A1A1A]">Быстрый демо-вход</div>
-                <div className="text-[10px] text-[#7A7A7A] font-mono">ivan@example.com / password123</div>
+                <div className="text-[10px] text-[#7A7A7A] font-mono">
+                  {demoAccount.email} / {demoAccount.password}
+                </div>
               </div>
             </div>
             <span className="text-xs font-bold text-[#005C53]">Войти →</span>
