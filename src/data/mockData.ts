@@ -49,6 +49,8 @@ export interface Ticket {
   seats: string;
   rawSeats?: string[];
   price: number;
+  bonusesUsed?: number;
+  bonusesEarned?: number;
   qrCode: string;
   isExpired?: boolean;
   bgGradient: string;
@@ -150,7 +152,7 @@ export const MOVIES: Movie[] = [
     genre: 'Приключения / Драма',
     rating: '8.4',
     description: 'В центре сюжета — гонка на мотоциклах. Два друга соревнуются за главный приз в захватывающем заезде, проверяющем их дружбу на прочность.',
-    priceFrom: 420,
+    priceFrom: 350,
     dates: ['Сегодня', '27 окт.', '28 окт.', '29 окт.'],
     bannerGradient: 'from-[#0B353A] to-[#124B52]',
     posterBg: '#8A3B14',

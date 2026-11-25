@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ArrowLeft, CreditCard, QrCode, CheckCircle2, AlertTriangle, ShieldCheck, Tag } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, CreditCard, QrCode, CheckCircle2, AlertTriangle, ShieldCheck, Tag, Award, Lock } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { Movie, Ticket, UserProfile, SavedCard } from '../data/mockData';
 import {
@@ -28,6 +28,7 @@ interface PaymentScreenProps {
   user: UserProfile | null;
   savedCards: SavedCard[];
   onAddCard: (card: SavedCard) => void;
+  onOpenLogin?: () => void;
   onBack: () => void;
   onSuccess: (newTicket: Ticket) => void;
   onGoHome: () => void;
@@ -43,6 +44,7 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
   user,
   savedCards,
   onAddCard,
+  onOpenLogin,
   onBack,
   onSuccess,
   onGoHome,
@@ -66,10 +68,60 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
   const [discountPercent, setDiscountPercent] = useState(0);
   const [promoFeedback, setPromoFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
+  // Bonus system state (strictly authorized users only)
+  const [useBonuses, setUseBonuses] = useState(false);
+  const [bonusAmountInput, setBonusAmountInput] = useState('');
+
   // Errors
   const [errors, setErrors] = useState<Record<string, string | null>>({});
 
-  const finalPrice = Math.max(1, Math.round(totalPrice * (1 - discountPercent / 100)));
+  useEffect(() => {
+    if (user) {
+      setEmail(user.email || '');
+      setPhone(user.phone || '+7 (900) 123-45-67');
+    } else {
+      setUseBonuses(false);
+      setBonusAmountInput('');
+    }
+  }, [user]);
+
+  const priceAfterPromo = Math.max(1, Math.round(totalPrice * (1 - discountPercent / 100)));
+  const userBonuses = user ? Math.max(0, user.bonuses ?? 0) : 0;
+  const maxUsableBonuses = user
+    ? Math.min(userBonuses, Math.floor(priceAfterPromo * 0.5), Math.max(0, priceAfterPromo - 1))
+    : 0;
+
+  const parsedBonusInput = bonusAmountInput === '' ? 0 : Math.floor(Number(bonusAmountInput));
+  const bonusError =
+    user && useBonuses && bonusAmountInput !== ''
+      ? !Number.isFinite(parsedBonusInput) || parsedBonusInput < 0
+        ? 'Введите корректное количество бонусов'
+        : parsedBonusInput > userBonuses
+        ? `На балансе только ${userBonuses} бонусов`
+        : parsedBonusInput > maxUsableBonuses
+        ? `Можно списать не более 50% заказа (макс. ${maxUsableBonuses} Б)`
+        : null
+      : null;
+
+  const appliedBonuses =
+    user && useBonuses && !bonusError
+      ? Math.max(0, Math.min(maxUsableBonuses, parsedBonusInput))
+      : 0;
+
+  const finalPrice = Math.max(1, priceAfterPromo - appliedBonuses);
+  const earnedBonuses = user ? Math.round(finalPrice * 0.05) : 0;
+
+  const handleToggleBonuses = () => {
+    if (!user) return;
+    if (useBonuses) {
+      setUseBonuses(false);
+      setBonusAmountInput('');
+      if (errors.bonuses) setErrors({ ...errors, bonuses: null });
+    } else {
+      setUseBonuses(true);
+      setBonusAmountInput(maxUsableBonuses > 0 ? String(maxUsableBonuses) : '0');
+    }
+  };
 
   const formattedSeatsSummary = selectedSeats
     .map((s) => {
@@ -102,6 +154,7 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
     const phoneErr = validatePhone(phone);
     if (emailErr) nextErrs.email = emailErr;
     if (phoneErr) nextErrs.phone = phoneErr;
+    if (user && useBonuses && bonusError) nextErrs.bonuses = bonusError;
 
     const usingNewCard = paymentMethod === 'card' && (savedCards.length === 0 || selectedSavedCardId === 'new');
     if (usingNewCard) {
@@ -158,11 +211,107 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
         price: finalPrice,
         qrCode: `KM-${Date.now().toString().slice(-6)}`,
         bgGradient: 'from-[#0B353A] to-[#005C53]',
+        ...(appliedBonuses > 0 ? { bonusesUsed: appliedBonuses } : {}),
+        ...(user && earnedBonuses > 0 ? { bonusesEarned: earnedBonuses } : {}),
       };
 
       onSuccess(newTicket);
     }, 1000);
   };
+
+  const bonusSection = !user ? (
+    <div className="bg-white border border-[#EAE7DF] rounded-2xl p-4 shadow-xs space-y-2.5">
+      <div className="flex items-start gap-2.5">
+        <div className="w-8 h-8 rounded-xl bg-[#F2EFE7] text-[#7A7A7A] flex items-center justify-center shrink-0">
+          <Lock size={15} />
+        </div>
+        <div className="flex-1">
+          <div className="text-xs font-black text-[#1A1A1A]">Бонусы КАДР (только для авторизованных)</div>
+          <p className="text-[11px] text-[#7A7A7A] leading-relaxed mt-0.5">
+            Списание баллов (до 50% заказа) и начисление +5% кэшбэка доступны только после входа в аккаунт.
+          </p>
+        </div>
+      </div>
+      {onOpenLogin && (
+        <button
+          type="button"
+          onClick={onOpenLogin}
+          className="w-full py-2.5 rounded-xl bg-[#EBF3F2] hover:bg-[#dcebe9] border border-[#005C53]/30 text-[#005C53] text-xs font-bold transition-colors cursor-pointer"
+        >
+          Войти для использования бонусов
+        </button>
+      )}
+    </div>
+  ) : (
+    <div className="bg-white border border-[#005C53]/25 rounded-2xl p-4 shadow-xs space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-[#EBF3F2] text-[#005C53] flex items-center justify-center shrink-0">
+            <Award size={16} />
+          </div>
+          <div>
+            <div className="text-xs font-black text-[#1A1A1A]">Бонусы КАДР</div>
+            <div className="text-[10px] text-[#7A7A7A]">
+              Доступно: <strong className="text-[#005C53]">{userBonuses} Б</strong> (1 Б = 1 ₽)
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          disabled={maxUsableBonuses === 0}
+          onClick={handleToggleBonuses}
+          className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+            useBonuses
+              ? 'bg-[#005C53] text-white shadow-xs'
+              : 'bg-[#EBF3F2] text-[#005C53] border border-[#005C53]/25'
+          }`}
+        >
+          {useBonuses ? 'Списываем' : 'Списать'}
+        </button>
+      </div>
+
+      {useBonuses && maxUsableBonuses > 0 && (
+        <div className="space-y-1.5 pt-2 border-t border-[#F2EFE7]">
+          <div className="flex items-center justify-between text-[10px] text-[#7A7A7A]">
+            <span>Сколько списать (до {maxUsableBonuses} Б):</span>
+            <button
+              type="button"
+              onClick={() => {
+                setBonusAmountInput(String(maxUsableBonuses));
+                if (errors.bonuses) setErrors({ ...errors, bonuses: null });
+              }}
+              className="text-[#005C53] font-bold hover:underline cursor-pointer"
+            >
+              Максимум
+            </button>
+          </div>
+          <input
+            type="number"
+            min={0}
+            max={maxUsableBonuses}
+            value={bonusAmountInput}
+            onChange={(e) => {
+              setBonusAmountInput(e.target.value.replace(/[^\d]/g, ''));
+              if (errors.bonuses) setErrors({ ...errors, bonuses: null });
+            }}
+            placeholder={`0 – ${maxUsableBonuses}`}
+            className={`w-full bg-[#FAF9F5] border rounded-xl px-3 py-2 text-xs font-bold text-[#1A1A1A] focus:outline-none ${
+              bonusError || errors.bonuses ? 'border-red-500' : 'border-[#EAE7DF] focus:border-[#005C53]'
+            }`}
+          />
+          {(bonusError || errors.bonuses) && (
+            <p className="text-[10px] text-red-600">{bonusError || errors.bonuses}</p>
+          )}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[#F2EFE7]">
+        <span className="text-[#7A7A7A]">Кэшбэк за этот заказ (5%):</span>
+        <span className="font-bold text-[#005C53]">+{earnedBonuses} Б</span>
+      </div>
+    </div>
+  );
 
   // Screen 23 · Покупка завершена
   if (step === 'success') {
@@ -189,6 +338,27 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
             <div className="text-xs text-[#1A1A1A] font-bold pt-1 border-t border-[#F2EFE7]">
               {formattedSeatsSummary}
             </div>
+            {(appliedBonuses > 0 || (user && earnedBonuses > 0)) && (
+              <div className="pt-2 border-t border-[#F2EFE7] space-y-1 text-[11px]">
+                {appliedBonuses > 0 && (
+                  <div className="flex items-center justify-between text-[#7A7A7A]">
+                    <span>Списано бонусов:</span>
+                    <span className="font-bold text-[#1A1A1A]">−{appliedBonuses} Б</span>
+                  </div>
+                )}
+                {user && earnedBonuses > 0 && (
+                  <div className="flex items-center justify-between text-[#005C53]">
+                    <span>Начислено кэшбэком:</span>
+                    <span className="font-bold">+{earnedBonuses} Б</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {!user && (
+              <div className="pt-2 border-t border-[#F2EFE7] text-[10px] text-[#7A7A7A]">
+                Бонусы не начислены: программа лояльности работает только для авторизованных пользователей.
+              </div>
+            )}
           </div>
         </div>
 
@@ -301,7 +471,14 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
             {discountPercent > 0 && (
               <div className="flex items-center justify-between text-xs text-[#005C53] font-medium">
                 <span>Скидка ({discountPercent}%):</span>
-                <span>−{totalPrice - finalPrice} ₽</span>
+                <span>−{totalPrice - priceAfterPromo} ₽</span>
+              </div>
+            )}
+
+            {appliedBonuses > 0 && (
+              <div className="flex items-center justify-between text-xs text-[#005C53] font-medium">
+                <span>Оплата бонусами:</span>
+                <span>−{appliedBonuses} ₽</span>
               </div>
             )}
 
@@ -310,6 +487,8 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
               <span className="text-lg font-black text-[#005C53]">{finalPrice} ₽</span>
             </div>
           </div>
+
+          {bonusSection}
 
           <div className="p-3.5 bg-white border border-[#EAE7DF] rounded-2xl text-[11px] text-[#7A7A7A] space-y-1">
             <div className="font-bold text-[#1A1A1A] flex items-center gap-1.5">
@@ -334,7 +513,13 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
             <div className="text-base font-black text-[#005C53]">{finalPrice} ₽</div>
           </div>
           <button
-            onClick={() => setStep('payment')}
+            onClick={() => {
+              if (user && useBonuses && bonusError) {
+                setErrors((prev) => ({ ...prev, bonuses: bonusError }));
+                return;
+              }
+              setStep('payment');
+            }}
             className="px-8 py-3.5 bg-[#005C53] hover:bg-[#046C62] text-white font-bold rounded-2xl text-xs transition-all shadow-sm cursor-pointer"
           >
             Оформить заказ
@@ -429,6 +614,9 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
             {errors.phone && <p className="text-[10px] text-red-600 mt-1">{errors.phone}</p>}
           </div>
         </div>
+
+        {/* Auth-only Bonus Panel */}
+        {bonusSection}
 
         {/* Payment method selector */}
         <div className="space-y-2">
