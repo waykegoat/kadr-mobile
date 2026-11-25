@@ -1,7 +1,18 @@
 import React, { useState } from 'react';
-import { ArrowLeft, CreditCard, QrCode, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, CreditCard, QrCode, CheckCircle2, AlertTriangle, ShieldCheck, Tag } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import type { Movie } from '../data/mockData';
+import type { Movie, Ticket, UserProfile, SavedCard } from '../data/mockData';
+import {
+  validateEmail,
+  validatePhone,
+  formatPhoneInput,
+  formatCardNumber,
+  detectCardBrand,
+  validateCardNumber,
+  formatCardExpiry,
+  validateCardExpiry,
+  validateCardCvv,
+} from '../utils/validation';
 
 interface PaymentScreenProps {
   movie: Movie;
@@ -14,19 +25,11 @@ interface PaymentScreenProps {
   };
   selectedSeats: string[];
   totalPrice: number;
+  user: UserProfile | null;
+  savedCards: SavedCard[];
+  onAddCard: (card: SavedCard) => void;
   onBack: () => void;
-  onSuccess: (newTicket: {
-    id: string;
-    movieId: string;
-    movieTitle: string;
-    date: string;
-    time: string;
-    hall: string;
-    seats: string;
-    price: number;
-    qrCode: string;
-    bgGradient: string;
-  }) => void;
+  onSuccess: (newTicket: Ticket) => void;
   onGoHome: () => void;
   onGoTickets: () => void;
 }
@@ -37,22 +40,36 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
   selectedShowtime,
   selectedSeats,
   totalPrice,
+  user,
+  savedCards,
+  onAddCard,
   onBack,
   onSuccess,
   onGoHome,
   onGoTickets,
 }) => {
-  // Checkout sub-step: 'cart' (Screen 17) -> 'payment' (Screen 19-21) -> 'processing' -> 'success' (Screen 23)
   const [step, setStep] = useState<'cart' | 'payment' | 'processing' | 'success'>('cart');
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'sbp' | 'sberpay'>('card');
+  const [selectedSavedCardId, setSelectedSavedCardId] = useState<string>(savedCards[0]?.id || 'new');
   const [showCancelModal, setShowCancelModal] = useState(false);
 
   // Form states
-  const [email, setEmail] = useState('ivan@example.com');
-  const [phone, setPhone] = useState('+7 (900) 123-45-67');
-  const [cardNumber, setCardNumber] = useState('2200 1234 5678 4242');
-  const [cardExpiry, setCardExpiry] = useState('12/28');
-  const [cardCvv, setCardCvv] = useState('789');
+  const [email, setEmail] = useState(user?.email || 'ivan@example.com');
+  const [phone, setPhone] = useState(user?.phone || '+7 (900) 123-45-67');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
+  const [saveCardToProfile, setSaveCardToProfile] = useState(true);
+
+  // Promo code state
+  const [promoCode, setPromoCode] = useState('');
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [promoFeedback, setPromoFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  // Errors
+  const [errors, setErrors] = useState<Record<string, string | null>>({});
+
+  const finalPrice = Math.max(1, Math.round(totalPrice * (1 - discountPercent / 100)));
 
   const formattedSeatsSummary = selectedSeats
     .map((s) => {
@@ -61,7 +78,60 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
     })
     .join('; ');
 
+  const handleApplyPromo = () => {
+    const code = promoCode.trim().toUpperCase();
+    if (!code) {
+      setPromoFeedback({ type: 'err', text: 'Введите промокод (например: KINO10)' });
+      return;
+    }
+    if (code === 'KINO10') {
+      setDiscountPercent(10);
+      setPromoFeedback({ type: 'ok', text: 'Промокод KINO10 применён: скидка 10%' });
+    } else if (code === 'WELCOME20') {
+      setDiscountPercent(20);
+      setPromoFeedback({ type: 'ok', text: 'Промокод WELCOME20 применён: скидка 20%' });
+    } else {
+      setDiscountPercent(0);
+      setPromoFeedback({ type: 'err', text: 'Промокод не найден или истёк' });
+    }
+  };
+
   const handlePay = () => {
+    const nextErrs: Record<string, string | null> = {};
+    const emailErr = validateEmail(email);
+    const phoneErr = validatePhone(phone);
+    if (emailErr) nextErrs.email = emailErr;
+    if (phoneErr) nextErrs.phone = phoneErr;
+
+    const usingNewCard = paymentMethod === 'card' && (savedCards.length === 0 || selectedSavedCardId === 'new');
+    if (usingNewCard) {
+      const numErr = validateCardNumber(cardNumber);
+      const expErr = validateCardExpiry(cardExpiry);
+      const cvvErr = validateCardCvv(cardCvv);
+      if (numErr) nextErrs.cardNumber = numErr;
+      if (expErr) nextErrs.cardExpiry = expErr;
+      if (cvvErr) nextErrs.cardCvv = cvvErr;
+    }
+
+    if (Object.values(nextErrs).some(Boolean)) {
+      setErrors(nextErrs);
+      return;
+    }
+
+    setErrors({});
+
+    if (usingNewCard && saveCardToProfile) {
+      const digits = cardNumber.replace(/\D/g, '');
+      const last4 = digits.slice(-4);
+      onAddCard({
+        id: `card-${Date.now()}`,
+        label: detectCardBrand(digits),
+        number: `•••• ${last4}`,
+        last4,
+        expiry: cardExpiry.trim(),
+      });
+    }
+
     setStep('processing');
     setTimeout(() => {
       setStep('success');
@@ -76,7 +146,7 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
         // ignore
       }
 
-      const newTicket = {
+      const newTicket: Ticket = {
         id: `ticket-${Date.now()}`,
         movieId: movie.id,
         movieTitle: movie.title,
@@ -84,13 +154,14 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
         time: selectedShowtime.time,
         hall: selectedShowtime.hall,
         seats: formattedSeatsSummary,
-        price: totalPrice,
+        rawSeats: selectedSeats,
+        price: finalPrice,
         qrCode: `KM-${Date.now().toString().slice(-6)}`,
         bgGradient: 'from-[#0B353A] to-[#005C53]',
       };
 
       onSuccess(newTicket);
-    }, 1200);
+    }, 1000);
   };
 
   // Screen 23 · Покупка завершена
@@ -105,14 +176,11 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
           <span className="text-[10px] font-black tracking-widest text-[#005C53] uppercase">
             Заказ #KM-{Date.now().toString().slice(-5)}
           </span>
-          <h2 className="text-2xl font-black text-[#1A1A1A]">
-            Покупка завершена!
-          </h2>
+          <h2 className="text-2xl font-black text-[#1A1A1A]">Покупка завершена!</h2>
           <p className="text-xs text-[#7A7A7A] max-w-xs">
-            Электронные билеты отправлены на почту <strong className="text-[#1A1A1A]">{email}</strong>. Предъявите QR-код на входе в зал.
+            Электронные билеты ({finalPrice} ₽) отправлены на почту <strong className="text-[#1A1A1A]">{email.trim()}</strong>.
           </p>
 
-          {/* Ticket mini summary card */}
           <div className="w-full max-w-xs p-4 bg-white border border-[#EAE7DF] rounded-2xl shadow-xs text-left space-y-2 mt-4">
             <div className="text-sm font-black text-[#1A1A1A]">{movie.title}</div>
             <div className="text-xs text-[#7A7A7A]">
@@ -149,7 +217,7 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
         <div className="w-16 h-16 rounded-full border-4 border-[#005C53] border-t-transparent animate-spin" />
         <h3 className="text-lg font-black text-[#1A1A1A]">Обработка платежа</h3>
         <p className="text-xs text-[#7A7A7A] max-w-xs">
-          Связываемся с банком для подтверждения оплаты заказа на сумму {totalPrice} ₽...
+          Связываемся с банком для подтверждения оплаты заказа на сумму {finalPrice} ₽...
         </p>
       </div>
     );
@@ -159,7 +227,6 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
   if (step === 'cart') {
     return (
       <div className="flex-1 flex flex-col bg-[#FAF9F5] text-[#1A1A1A] overflow-hidden animate-fade-in relative">
-        {/* Header matching Screen 17 */}
         <div className="p-4 border-b border-[#EAE7DF] bg-white flex items-center justify-between shrink-0">
           <button
             onClick={() => setShowCancelModal(true)}
@@ -173,7 +240,6 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4 pb-24">
-          {/* Movie order card matching Screen 17 */}
           <div className="bg-white border border-[#EAE7DF] rounded-2xl p-4 shadow-xs space-y-3">
             <div className="pb-3 border-b border-[#F2EFE7]">
               <h2 className="text-base font-black text-[#1A1A1A]">{movie.title}</h2>
@@ -182,7 +248,6 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
               </div>
             </div>
 
-            {/* Individual seats breakdown */}
             <div className="space-y-2">
               {selectedSeats.map((s, idx) => {
                 const [r, num] = s.split('-');
@@ -197,10 +262,52 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
               })}
             </div>
 
-            {/* Total matching Screen 17 */}
+            {/* Promo code in cart */}
+            <div className="pt-2 border-t border-[#F2EFE7] space-y-1.5">
+              <div className="flex items-center gap-1 text-[10px] font-bold text-[#7A7A7A]">
+                <Tag size={11} className="text-[#005C53]" />
+                <span>Промокод (KINO10 или WELCOME20)</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={(e) => {
+                    setPromoCode(e.target.value.toUpperCase());
+                    if (promoFeedback) setPromoFeedback(null);
+                  }}
+                  placeholder="KINO10"
+                  className="flex-1 bg-[#FAF9F5] border border-[#EAE7DF] rounded-xl px-3 py-1.5 text-xs uppercase text-[#1A1A1A] focus:outline-none focus:border-[#005C53]"
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyPromo}
+                  className="px-3 py-1.5 bg-[#EBF3F2] text-[#005C53] font-bold rounded-xl text-xs cursor-pointer"
+                >
+                  Ок
+                </button>
+              </div>
+              {promoFeedback && (
+                <p
+                  className={`text-[10px] font-semibold ${
+                    promoFeedback.type === 'ok' ? 'text-[#005C53]' : 'text-red-600'
+                  }`}
+                >
+                  {promoFeedback.text}
+                </p>
+              )}
+            </div>
+
+            {discountPercent > 0 && (
+              <div className="flex items-center justify-between text-xs text-[#005C53] font-medium">
+                <span>Скидка ({discountPercent}%):</span>
+                <span>−{totalPrice - finalPrice} ₽</span>
+              </div>
+            )}
+
             <div className="pt-3 border-t border-[#F2EFE7] flex items-center justify-between">
               <span className="text-sm font-black text-[#1A1A1A]">Итого:</span>
-              <span className="text-lg font-black text-[#005C53]">{totalPrice} ₽</span>
+              <span className="text-lg font-black text-[#005C53]">{finalPrice} ₽</span>
             </div>
           </div>
 
@@ -209,9 +316,7 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
               <ShieldCheck size={14} className="text-[#005C53]" />
               <span>Проверьте данные</span>
             </div>
-            <div>
-              Проверьте дату, время и выбранные места перед подтверждением и переходом к оплате.
-            </div>
+            <div>Проверьте дату, время и выбранные места перед подтверждением и переходом к оплате.</div>
           </div>
 
           <button
@@ -226,7 +331,7 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
         <div className="p-4 bg-white border-t border-[#EAE7DF] flex items-center justify-between shrink-0 shadow-sm">
           <div>
             <div className="text-[11px] text-[#7A7A7A]">Сумма к оплате</div>
-            <div className="text-base font-black text-[#005C53]">{totalPrice} ₽</div>
+            <div className="text-base font-black text-[#005C53]">{finalPrice} ₽</div>
           </div>
           <button
             onClick={() => setStep('payment')}
@@ -268,10 +373,9 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
     );
   }
 
-  // Step 'payment' (Screens 18-21: Оформление, способ оплаты, реквизиты карты или СБП)
+  // Step 'payment'
   return (
     <div className="flex-1 flex flex-col bg-[#FAF9F5] text-[#1A1A1A] overflow-hidden animate-fade-in relative">
-      {/* Header */}
       <div className="p-4 border-b border-[#EAE7DF] bg-white flex items-center justify-between shrink-0">
         <button
           onClick={() => setStep('cart')}
@@ -285,42 +389,55 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 space-y-4 pb-24">
-        {/* Contact details matching Screen 18 */}
+        {/* Contact details with validation */}
         <div className="bg-white border border-[#EAE7DF] rounded-2xl p-4 space-y-3 shadow-xs">
           <div className="text-xs font-black uppercase tracking-wider text-[#7A7A7A]">
             Контакты для билетов
           </div>
           <div>
             <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">
-              Email для электронных билетов
+              Email для электронных билетов *
             </label>
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-[#FAF9F5] border border-[#EAE7DF] rounded-xl px-3 py-2 text-xs text-[#1A1A1A] focus:outline-none focus:border-[#005C53]"
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors({ ...errors, email: null });
+              }}
+              placeholder="ivan@example.com"
+              className={`w-full bg-[#FAF9F5] border rounded-xl px-3 py-2 text-xs text-[#1A1A1A] focus:outline-none ${
+                errors.email ? 'border-red-500' : 'border-[#EAE7DF] focus:border-[#005C53]'
+              }`}
             />
+            {errors.email && <p className="text-[10px] text-red-600 mt-1">{errors.email}</p>}
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">
-              Телефон
-            </label>
+            <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">Телефон *</label>
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full bg-[#FAF9F5] border border-[#EAE7DF] rounded-xl px-3 py-2 text-xs text-[#1A1A1A] focus:outline-none focus:border-[#005C53]"
+              onChange={(e) => {
+                setPhone(formatPhoneInput(e.target.value));
+                if (errors.phone) setErrors({ ...errors, phone: null });
+              }}
+              placeholder="+7 (900) 123-45-67"
+              className={`w-full bg-[#FAF9F5] border rounded-xl px-3 py-2 text-xs text-[#1A1A1A] focus:outline-none ${
+                errors.phone ? 'border-red-500' : 'border-[#EAE7DF] focus:border-[#005C53]'
+              }`}
             />
+            {errors.phone && <p className="text-[10px] text-red-600 mt-1">{errors.phone}</p>}
           </div>
         </div>
 
-        {/* Payment method selector matching Screen 19 */}
+        {/* Payment method selector */}
         <div className="space-y-2">
           <div className="text-xs font-black uppercase tracking-wider text-[#7A7A7A]">
             Способ оплаты
           </div>
           <div className="grid grid-cols-3 gap-2">
             <button
+              type="button"
               onClick={() => setPaymentMethod('card')}
               className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                 paymentMethod === 'card'
@@ -334,6 +451,7 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={() => setPaymentMethod('sbp')}
               className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                 paymentMethod === 'sbp'
@@ -347,6 +465,7 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={() => setPaymentMethod('sberpay')}
               className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                 paymentMethod === 'sberpay'
@@ -363,50 +482,128 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
           </div>
         </div>
 
-        {/* Card input form matching Screen 20 */}
+        {/* Card Selection & Form */}
         {paymentMethod === 'card' && (
           <div className="bg-white border border-[#EAE7DF] rounded-2xl p-4 space-y-3 shadow-xs">
-            <div>
-              <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">
-                Номер карты
-              </label>
-              <input
-                type="text"
-                value={cardNumber}
-                onChange={(e) => setCardNumber(e.target.value)}
-                className="w-full bg-[#FAF9F5] border border-[#EAE7DF] rounded-xl px-3 py-2 text-xs font-mono text-[#1A1A1A] focus:outline-none focus:border-[#005C53]"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">
-                  Срок действия
-                </label>
-                <input
-                  type="text"
-                  value={cardExpiry}
-                  onChange={(e) => setCardExpiry(e.target.value)}
-                  placeholder="MM/YY"
-                  className="w-full bg-[#FAF9F5] border border-[#EAE7DF] rounded-xl px-3 py-2 text-xs font-mono text-[#1A1A1A] focus:outline-none focus:border-[#005C53]"
-                />
+            {savedCards.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-[#7A7A7A]">Выберите карту</label>
+                {savedCards.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setSelectedSavedCardId(c.id)}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer ${
+                      selectedSavedCardId === c.id
+                        ? 'bg-[#EBF3F2] border-[#005C53] font-bold text-[#005C53]'
+                        : 'bg-[#FAF9F5] border-[#EAE7DF] text-[#1A1A1A]'
+                    }`}
+                  >
+                    <span>
+                      {c.label} {c.number}
+                    </span>
+                    <span className="text-[10px] text-[#7A7A7A]">{c.expiry}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setSelectedSavedCardId('new')}
+                  className={`w-full p-2.5 rounded-xl border text-xs text-left cursor-pointer ${
+                    selectedSavedCardId === 'new'
+                      ? 'bg-[#EBF3F2] border-[#005C53] font-bold text-[#005C53]'
+                      : 'bg-[#FAF9F5] border-[#EAE7DF] text-[#7A7A7A]'
+                  }`}
+                >
+                  + Ввести другую карту
+                </button>
               </div>
-              <div>
-                <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">
-                  CVV / CVC
+            )}
+
+            {(savedCards.length === 0 || selectedSavedCardId === 'new') && (
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">
+                    Номер карты (16 цифр) *
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={cardNumber}
+                    onChange={(e) => {
+                      setCardNumber(formatCardNumber(e.target.value));
+                      if (errors.cardNumber) setErrors({ ...errors, cardNumber: null });
+                    }}
+                    placeholder="2200 1234 5678 4242"
+                    className={`w-full bg-[#FAF9F5] border rounded-xl px-3 py-2 text-xs font-mono text-[#1A1A1A] focus:outline-none ${
+                      errors.cardNumber ? 'border-red-500' : 'border-[#EAE7DF] focus:border-[#005C53]'
+                    }`}
+                  />
+                  {errors.cardNumber && (
+                    <p className="text-[10px] text-red-600 mt-1">{errors.cardNumber}</p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">
+                      Срок действия *
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={cardExpiry}
+                      onChange={(e) => {
+                        setCardExpiry(formatCardExpiry(e.target.value));
+                        if (errors.cardExpiry) setErrors({ ...errors, cardExpiry: null });
+                      }}
+                      placeholder="12/28"
+                      className={`w-full bg-[#FAF9F5] border rounded-xl px-3 py-2 text-xs font-mono text-[#1A1A1A] focus:outline-none ${
+                        errors.cardExpiry ? 'border-red-500' : 'border-[#EAE7DF] focus:border-[#005C53]'
+                      }`}
+                    />
+                    {errors.cardExpiry && (
+                      <p className="text-[10px] text-red-600 mt-1">{errors.cardExpiry}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#7A7A7A] mb-1">
+                      CVV / CVC *
+                    </label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={3}
+                      value={cardCvv}
+                      onChange={(e) => {
+                        setCardCvv(e.target.value.replace(/\D/g, '').slice(0, 3));
+                        if (errors.cardCvv) setErrors({ ...errors, cardCvv: null });
+                      }}
+                      placeholder="789"
+                      className={`w-full bg-[#FAF9F5] border rounded-xl px-3 py-2 text-xs font-mono text-[#1A1A1A] focus:outline-none ${
+                        errors.cardCvv ? 'border-red-500' : 'border-[#EAE7DF] focus:border-[#005C53]'
+                      }`}
+                    />
+                    {errors.cardCvv && (
+                      <p className="text-[10px] text-red-600 mt-1">{errors.cardCvv}</p>
+                    )}
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 text-[11px] text-[#7A7A7A] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={saveCardToProfile}
+                    onChange={(e) => setSaveCardToProfile(e.target.checked)}
+                    className="accent-[#005C53]"
+                  />
+                  <span>Сохранить карту для следующих покупок</span>
                 </label>
-                <input
-                  type="password"
-                  maxLength={3}
-                  value={cardCvv}
-                  onChange={(e) => setCardCvv(e.target.value)}
-                  className="w-full bg-[#FAF9F5] border border-[#EAE7DF] rounded-xl px-3 py-2 text-xs font-mono text-[#1A1A1A] focus:outline-none focus:border-[#005C53]"
-                />
               </div>
-            </div>
+            )}
           </div>
         )}
 
-        {/* SBP screen matching Screen 21 */}
+        {/* SBP QR screen */}
         {paymentMethod === 'sbp' && (
           <div className="bg-white border border-[#EAE7DF] rounded-2xl p-4 text-center space-y-3 shadow-xs">
             <div className="w-36 h-36 mx-auto bg-[#FAF9F5] border-2 border-dashed border-[#005C53]/40 rounded-2xl flex items-center justify-center p-2">
@@ -423,13 +620,13 @@ export const PaymentScreen: React.FC<PaymentScreenProps> = ({
       <div className="p-4 bg-white border-t border-[#EAE7DF] flex items-center justify-between shrink-0 shadow-md">
         <div>
           <div className="text-[11px] text-[#7A7A7A]">К списанию</div>
-          <div className="text-base font-black text-[#005C53]">{totalPrice} ₽</div>
+          <div className="text-base font-black text-[#005C53]">{finalPrice} ₽</div>
         </div>
         <button
           onClick={handlePay}
           className="px-8 py-3.5 bg-[#005C53] hover:bg-[#046C62] text-white font-bold rounded-2xl text-xs transition-all shadow-sm cursor-pointer"
         >
-          Оплатить {totalPrice} ₽
+          Оплатить {finalPrice} ₽
         </button>
       </div>
     </div>

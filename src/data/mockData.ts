@@ -14,6 +14,8 @@ export interface Movie {
   description: string;
   priceFrom: number;
   dates: string[];
+  dateFrom?: string;
+  dateTo?: string;
   bannerGradient: string;
   posterBg: string;
   posterImage?: string;
@@ -45,10 +47,31 @@ export interface Ticket {
   time: string;
   hall: string;
   seats: string;
+  rawSeats?: string[];
   price: number;
   qrCode: string;
   isExpired?: boolean;
   bgGradient: string;
+}
+
+export interface UserProfile {
+  name: string;
+  email: string;
+  phone?: string;
+  bonuses?: number;
+  notificationsEnabled?: boolean;
+}
+
+export interface StoredAccount extends UserProfile {
+  password: string;
+}
+
+export interface SavedCard {
+  id: string;
+  label: string;
+  number: string;
+  last4: string;
+  expiry: string;
 }
 
 export interface PurchaseStats {
@@ -230,6 +253,7 @@ export const INITIAL_TICKETS: Ticket[] = [
     time: '12:40',
     hall: 'Зал 1',
     seats: 'Ряд 3 · места 4, 5',
+    rawSeats: ['3-4', '3-5'],
     price: 840,
     qrCode: 'KMAX-BM-2710-1240-345',
     bgGradient: 'from-[#0B353A] to-[#005C53]',
@@ -242,9 +266,31 @@ export const INITIAL_TICKETS: Ticket[] = [
     time: '17:10',
     hall: 'Зал 2 VIP',
     seats: 'Ряд 2 · место 3',
+    rawSeats: ['2-3'],
     price: 420,
     qrCode: 'KMAX-SM-2810-1710-23',
     bgGradient: 'from-[#0E2F35] to-[#046C62]',
+  },
+];
+
+export const INITIAL_SAVED_CARDS: SavedCard[] = [
+  {
+    id: 'c1',
+    label: 'МИР',
+    number: '•••• 4242',
+    last4: '4242',
+    expiry: '12/28',
+  },
+];
+
+export const INITIAL_ACCOUNTS: StoredAccount[] = [
+  {
+    name: 'Иван Петров',
+    email: 'ivan@example.com',
+    phone: '+7 (900) 123-45-67',
+    password: 'password123',
+    bonuses: 420,
+    notificationsEnabled: true,
   },
 ];
 

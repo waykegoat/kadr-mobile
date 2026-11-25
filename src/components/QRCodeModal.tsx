@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import type { Ticket } from '../data/mockData';
 
 interface QRCodeModalProps {
@@ -7,6 +8,7 @@ interface QRCodeModalProps {
 }
 
 export const QRCodeModal: React.FC<QRCodeModalProps> = ({ ticket, onClose }) => {
+  const [addedWallet, setAddedWallet] = useState(false);
   if (!ticket) return null;
 
   return (
@@ -90,10 +92,21 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({ ticket, onClose }) => 
         {/* Buttons matching Screen 27 */}
         <div className="w-full space-y-2">
           <button
-            onClick={() => alert('Билет добавлен в Apple Wallet')}
-            className="w-full py-2.5 px-4 bg-[#1A1A1A] hover:bg-black text-white font-semibold rounded-2xl text-xs transition-colors cursor-pointer"
+            onClick={() => setAddedWallet(true)}
+            className={`w-full py-2.5 px-4 font-semibold rounded-2xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+              addedWallet
+                ? 'bg-[#EBF3F2] text-[#005C53] border border-[#005C53]/30'
+                : 'bg-[#1A1A1A] hover:bg-black text-white'
+            }`}
           >
-            Добавить в Apple Wallet
+            {addedWallet ? (
+              <>
+                <CheckCircle2 size={14} />
+                <span>Добавлено в Apple Wallet</span>
+              </>
+            ) : (
+              <span>Добавить в Apple Wallet</span>
+            )}
           </button>
           <button
             onClick={onClose}

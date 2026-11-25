@@ -8,7 +8,7 @@ interface HomeScreenProps {
   movies?: Movie[];
   onOpenDrawer: () => void;
   onSelectMovie: (movie: Movie) => void;
-  onQuickShowtime: (movie: Movie, showtime: Movie['showtimes'][0]) => void;
+  onQuickShowtime: (movie: Movie, showtime: Movie['showtimes'][0], date?: string) => void;
   onGoAfisha?: () => void;
 }
 
@@ -136,7 +136,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 {movie.showtimes.map((st, idx) => (
                   <button
                     key={idx}
-                    onClick={() => onQuickShowtime(movie, st)}
+                    onClick={() => onQuickShowtime(movie, st, selectedDate)}
                     className="flex flex-col items-center justify-center min-w-[72px] px-3 py-1.5 rounded-xl bg-[#FAF9F5] border border-[#EAE7DF] hover:border-[#005C53] hover:bg-[#EBF3F2] transition-all cursor-pointer group"
                   >
                     <span className="text-[10px] text-[#7A7A7A] group-hover:text-[#005C53]">

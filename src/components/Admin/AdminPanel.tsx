@@ -32,14 +32,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onExit,
 }) => {
   const [activeTab, setActiveTab] = useState<'movies' | 'add_movie' | 'halls' | 'stats'>('stats');
+  const [editingMovie, setEditingMovie] = useState<Movie | null>(null);
 
-  const handleAddMovie = (newMovie: Movie) => {
-    onUpdateMovies([newMovie, ...movies]);
+  const handleSaveMovie = (savedMovie: Movie) => {
+    const exists = movies.some((m) => m.id === savedMovie.id);
+    if (exists) {
+      onUpdateMovies(movies.map((m) => (m.id === savedMovie.id ? savedMovie : m)));
+    } else {
+      onUpdateMovies([savedMovie, ...movies]);
+    }
+    setEditingMovie(null);
     setActiveTab('movies');
   };
 
   const handleDeleteMovie = (id: string) => {
     onUpdateMovies(movies.filter((m) => m.id !== id));
+  };
+
+  const handleHallsChange = (updatedHalls: Hall[]) => {
+    onUpdateHalls(updatedHalls);
+    const updatedMovies = movies.map((m) => {
+      if (!m.hallId) return m;
+      const matchedHall = updatedHalls.find((h) => h.id === m.hallId);
+      if (!matchedHall) return m;
+      return {
+        ...m,
+        showtimes: m.showtimes.map((st) => ({ ...st, hall: matchedHall.name })),
+      };
+    });
+    onUpdateMovies(updatedMovies);
   };
 
   return (
@@ -100,7 +121,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTab('add_movie')}
+          onClick={() => {
+            setEditingMovie(null);
+            setActiveTab('add_movie');
+          }}
           className={`flex items-center gap-1.5 py-3 px-3 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer ${
             activeTab === 'add_movie'
               ? 'border-[#005C53] text-white'
@@ -108,7 +132,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <PlusCircle size={14} className={activeTab === 'add_movie' ? 'text-[#78C5BC]' : ''} />
-          <span>Добавить фильм</span>
+          <span>{editingMovie ? 'Редактирование' : 'Добавить фильм'}</span>
         </button>
 
         <button
@@ -132,21 +156,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <AdminMovieList
             movies={movies}
             halls={halls}
-            onAddMovieClick={() => setActiveTab('add_movie')}
+            onAddMovieClick={() => {
+              setEditingMovie(null);
+              setActiveTab('add_movie');
+            }}
+            onEditMovie={(movie) => {
+              setEditingMovie(movie);
+              setActiveTab('add_movie');
+            }}
             onDeleteMovie={handleDeleteMovie}
           />
         )}
 
         {activeTab === 'add_movie' && (
           <AdminAddMovie
+            key={editingMovie?.id || 'new'}
             halls={halls}
-            onAddMovie={handleAddMovie}
-            onCancel={() => setActiveTab('movies')}
+            existingMovies={movies}
+            initialMovie={editingMovie}
+            onSaveMovie={handleSaveMovie}
+            onCancel={() => {
+              setEditingMovie(null);
+              setActiveTab('movies');
+            }}
           />
         )}
 
         {activeTab === 'halls' && (
-          <AdminHalls halls={halls} onUpdateHalls={onUpdateHalls} />
+          <AdminHalls halls={halls} onUpdateHalls={handleHallsChange} />
         )}
       </div>
     </div>

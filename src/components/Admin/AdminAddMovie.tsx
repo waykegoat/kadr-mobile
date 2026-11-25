@@ -16,11 +16,11 @@ import type { Movie, Hall } from '../../data/mockData';
 interface AdminAddMovieProps {
   halls: Hall[];
   existingMovies?: Movie[];
-  onAddMovie: (newMovie: Movie) => void;
+  initialMovie?: Movie | null;
+  onSaveMovie: (movie: Movie) => void;
   onCancel: () => void;
 }
 
-// Preset high-res movie posters for instant selection
 const PRESET_POSTERS = [
   {
     title: 'Гладиатор 2',
@@ -56,87 +56,114 @@ const PRESET_POSTERS = [
   },
 ];
 
+interface ScheduledSession {
+  id: string;
+  time: string;
+  format: '2D' | '3D' | 'IMAX';
+  hallName: string;
+  price: number;
+}
+
+const formatDatesFromRange = (fromStr: string, toStr: string): string[] => {
+  const start = new Date(fromStr);
+  const end = new Date(toStr);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+    return ['Сегодня', 'Завтра'];
+  }
+  const months = ['янв.', 'фев.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сен.', 'окт.', 'ноя.', 'дек.'];
+  const result: string[] = [];
+  const cur = new Date(start);
+  let count = 0;
+  while (cur <= end && count < 7) {
+    result.push(`${cur.getDate()} ${months[cur.getMonth()]}`);
+    cur.setDate(cur.getDate() + 1);
+    count++;
+  }
+  return result.length > 0 ? result : ['Сегодня'];
+};
+
 export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
   halls,
-  onAddMovie,
+  initialMovie = null,
+  onSaveMovie,
   onCancel,
 }) => {
-  // 1. Basic Movie info
-  const [title, setTitle] = useState('');
-  const [genre, setGenre] = useState('Фантастика / Приключения');
-  const [age, setAge] = useState('16+');
-  const [durationMinutes, setDurationMinutes] = useState(135);
-  const [basePrice, setBasePrice] = useState(380);
-  const [description, setDescription] = useState('');
-  const [posterImage, setPosterImage] = useState<string>('');
-  const [posterBg, setPosterBg] = useState('#221c2c');
+  const isEditing = Boolean(initialMovie);
+  const defaultHall = halls.find((h) => h.id === initialMovie?.hallId) || halls[0];
 
-  // 2. Dates range (с ... по ...)
+  const [title, setTitle] = useState(initialMovie?.title || '');
+  const [genre, setGenre] = useState(initialMovie?.genre || 'Фантастика / Приключения');
+  const [age, setAge] = useState(initialMovie?.age || '16+');
+  const [durationMinutes, setDurationMinutes] = useState<number>(initialMovie?.durationMinutes || 135);
+  const [basePrice, setBasePrice] = useState<number>(initialMovie?.priceFrom || 380);
+  const [description, setDescription] = useState(initialMovie?.description || '');
+  const [posterImage, setPosterImage] = useState<string>(initialMovie?.posterImage || '');
+  const [posterBg, setPosterBg] = useState(initialMovie?.posterBg || '#0B353A');
+
   const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
+    if (initialMovie?.dateFrom) return initialMovie.dateFrom;
+    return new Date().toISOString().split('T')[0];
   });
   const [dateTo, setDateTo] = useState(() => {
+    if (initialMovie?.dateTo) return initialMovie.dateTo;
     const d = new Date();
     d.setDate(d.getDate() + 14);
     return d.toISOString().split('T')[0];
   });
 
-  // 3. Assigned Hall
-  const [selectedHallId, setSelectedHallId] = useState(halls[0]?.id || 'hall-1');
-
-  // 4. Showtimes
-  interface ScheduledSession {
-    id: string;
-    time: string;
-    format: '2D' | '3D' | 'IMAX';
-    hallName: string;
-    price: number;
-  }
-
+  const [selectedHallId, setSelectedHallId] = useState(defaultHall?.id || 'hall-1');
   const selectedHall = halls.find((h) => h.id === selectedHallId) || halls[0];
 
-  const [sessions, setSessions] = useState<ScheduledSession[]>([
-    {
-      id: 's-1',
-      time: '11:00',
-      format: '2D',
-      hallName: selectedHall?.name || 'Зал 1',
-      price: 380,
-    },
-    {
-      id: 's-2',
-      time: '14:30',
-      format: '2D',
-      hallName: selectedHall?.name || 'Зал 1',
-      price: 420,
-    },
-    {
-      id: 's-3',
-      time: '18:00',
-      format: '2D',
-      hallName: selectedHall?.name || 'Зал 1',
-      price: 450,
-    },
-  ]);
+  const [sessions, setSessions] = useState<ScheduledSession[]>(() => {
+    if (initialMovie && initialMovie.showtimes.length > 0) {
+      return initialMovie.showtimes.map((st, idx) => ({
+        id: `init-${idx}-${Date.now()}`,
+        time: st.time,
+        format: (st.format === '3D' || st.format === 'IMAX' ? st.format : '2D') as '2D' | '3D' | 'IMAX',
+        hallName: st.hall,
+        price: st.price,
+      }));
+    }
+    return [
+      {
+        id: 's-1',
+        time: '11:00',
+        format: '2D',
+        hallName: defaultHall?.name || 'Зал 1',
+        price: 380 + (defaultHall?.priceModifier || 0),
+      },
+      {
+        id: 's-2',
+        time: '14:30',
+        format: '2D',
+        hallName: defaultHall?.name || 'Зал 1',
+        price: 420 + (defaultHall?.priceModifier || 0),
+      },
+      {
+        id: 's-3',
+        time: '18:00',
+        format: '2D',
+        hallName: defaultHall?.name || 'Зал 1',
+        price: 450 + (defaultHall?.priceModifier || 0),
+      },
+    ];
+  });
 
-  // New session input
   const [newSessionTime, setNewSessionTime] = useState('21:15');
   const [newSessionFormat, setNewSessionFormat] = useState<'2D' | '3D' | 'IMAX'>('2D');
 
-  // Error validation states
   const [formError, setFormError] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string | null>>({});
 
-  // Helper: duration string formatter (e.g. 145 min -> "2 часа 25 минут")
   const formatDurationText = (mins: number) => {
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     if (h === 0) return `${m} минут`;
     if (m === 0) return `${h} ч.`;
-    return `${h} ч. ${m} мин.`;
+    return `${h} ч ${m} мин`;
   };
 
-  // Helper: calculate end time of a session (start time + duration + 15 min buffer)
   const calculateEndTime = (timeStr: string, durMins: number, bufferMins = 15) => {
     const [h, m] = timeStr.split(':').map(Number);
     const totalMins = h * 60 + m + durMins + bufferMins;
@@ -145,20 +172,16 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
     return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
   };
 
-  // Check collision between two time intervals
   const checkCollision = (time1: string, time2: string, durMins: number) => {
     const [h1, m1] = time1.split(':').map(Number);
     const [h2, m2] = time2.split(':').map(Number);
     const start1 = h1 * 60 + m1;
-    const end1 = start1 + durMins + 15; // 15 min buffer
+    const end1 = start1 + durMins + 15;
     const start2 = h2 * 60 + m2;
     const end2 = start2 + durMins + 15;
-
-    // Overlap condition
     return Math.max(start1, start2) < Math.min(end1, end2);
   };
 
-  // Check if any scheduled session has a collision in the same hall
   const detectCollisions = () => {
     const collisions: string[] = [];
     for (let i = 0; i < sessions.length; i++) {
@@ -178,27 +201,33 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
 
   const collisionList = detectCollisions();
 
-  // Auto-generate non-overlapping showtimes throughout the day
-  const handleAutoGenerateShowtimes = () => {
-    const startHour = 10; // 10:00
-    const endHour = 23; // 23:30
-    const startTotalMins = startHour * 60;
-    const endTotalMins = endHour * 60 + 30;
+  const handleHallSelect = (hall: Hall) => {
+    setSelectedHallId(hall.id);
+    setSessions((prev) =>
+      prev.map((s) => ({
+        ...s,
+        hallName: hall.name,
+        price: basePrice + hall.priceModifier + (s.format === '3D' ? 50 : s.format === 'IMAX' ? 150 : 0),
+      }))
+    );
+  };
 
-    const blockMins = durationMinutes + 20; // Movie + 20m cleanup/intermission
+  const handleAutoGenerateShowtimes = () => {
+    const safeDur = Math.max(30, Math.min(300, durationMinutes || 120));
+    const safePrice = Math.max(100, basePrice || 350);
+    const startTotalMins = 10 * 60;
+    const endTotalMins = 23 * 60 + 30;
+    const blockMins = safeDur + 20;
     const generated: ScheduledSession[] = [];
     let currentMins = startTotalMins;
     let idx = 1;
 
-    while (currentMins + durationMinutes <= endTotalMins) {
+    while (currentMins + safeDur <= endTotalMins) {
       const h = Math.floor(currentMins / 60);
       const m = currentMins % 60;
       const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-
-      // Pick format based on hall
-      const format =
-        selectedHall?.type === 'imax' ? 'IMAX' : idx % 2 === 0 ? '3D' : '2D';
-      const price = basePrice + (selectedHall?.priceModifier || 0) + (format === '3D' ? 50 : 0);
+      const format = selectedHall?.type === 'imax' ? 'IMAX' : idx % 2 === 0 ? '3D' : '2D';
+      const price = safePrice + (selectedHall?.priceModifier || 0) + (format === '3D' ? 50 : 0);
 
       generated.push({
         id: `auto-${idx}-${Date.now()}`,
@@ -213,23 +242,26 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
     }
 
     setSessions(generated);
+    setSessionError(null);
   };
 
-  // Handle local file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
+    if (file.size > 5 * 1024 * 1024) {
+      setFieldErrors({ ...fieldErrors, poster: 'Размер файла не должен превышать 5 МБ' });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         setPosterImage(reader.result);
+        setFieldErrors({ ...fieldErrors, poster: null });
       }
     };
     reader.readAsDataURL(file);
   };
 
-  // Quick preset poster selection
   const handleSelectPreset = (preset: (typeof PRESET_POSTERS)[0]) => {
     setTitle(preset.title);
     setGenre(preset.genre);
@@ -237,71 +269,118 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
     setDurationMinutes(preset.duration);
     setPosterImage(preset.url);
     setPosterBg(preset.color);
-    if (!description) {
-      setDescription(`Захватывающая премьера мирового кинематографа: ${preset.title}. Эксклюзивно в Киномакс.`);
+    setFieldErrors({});
+    setFormError(null);
+    if (!description.trim()) {
+      setDescription(
+        `Захватывающая премьера мирового кинематографа: ${preset.title}. Эксклюзивно в КАДР.`
+      );
     }
   };
 
-  // Add custom session
   const handleAddSession = () => {
-    if (!newSessionTime) return;
-    const price = basePrice + (selectedHall?.priceModifier || 0);
+    if (!newSessionTime || !/^\d{2}:\d{2}$/.test(newSessionTime)) {
+      setSessionError('Укажите корректное время сеанса (ЧЧ:ММ)');
+      return;
+    }
+    const currentHallName = selectedHall?.name || 'Зал 1';
+    const hasConflict = sessions.some(
+      (s) => s.hallName === currentHallName && checkCollision(s.time, newSessionTime, durationMinutes)
+    );
+    if (hasConflict) {
+      setSessionError(
+        `Время ${newSessionTime} пересекается с существующим сеансом в ${currentHallName} (с учётом ${durationMinutes} мин + 15 мин уборка)`
+      );
+      return;
+    }
+
+    setSessionError(null);
+    const price =
+      (basePrice || 350) +
+      (selectedHall?.priceModifier || 0) +
+      (newSessionFormat === '3D' ? 50 : newSessionFormat === 'IMAX' ? 150 : 0);
+
     const newS: ScheduledSession = {
       id: `s-${Date.now()}`,
       time: newSessionTime,
       format: newSessionFormat,
-      hallName: selectedHall?.name || 'Зал 1',
+      hallName: currentHallName,
       price,
     };
     setSessions([...sessions, newS].sort((a, b) => a.time.localeCompare(b.time)));
   };
 
-  // Remove session
   const handleRemoveSession = (id: string) => {
     setSessions(sessions.filter((s) => s.id !== id));
+    setSessionError(null);
   };
 
-  // Quick date presets
   const handleDatePreset = (days: number) => {
     const from = new Date(dateFrom);
+    if (isNaN(from.getTime())) return;
     from.setDate(from.getDate() + days);
     setDateTo(from.toISOString().split('T')[0]);
+    setFieldErrors({ ...fieldErrors, dates: null });
   };
 
-  // Submit new movie
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) {
-      setFormError('Укажите название фильма');
-      return;
+    const nextErrs: Record<string, string | null> = {};
+
+    if (!title.trim()) nextErrs.title = 'Укажите название фильма';
+    else if (title.trim().length < 2) nextErrs.title = 'Минимум 2 символа';
+
+    if (!genre.trim()) nextErrs.genre = 'Укажите жанр фильма';
+
+    if (!durationMinutes || isNaN(durationMinutes) || durationMinutes < 30 || durationMinutes > 300) {
+      nextErrs.duration = 'Длительность от 30 до 300 мин';
     }
+
+    if (!basePrice || isNaN(basePrice) || basePrice < 100 || basePrice > 10000) {
+      nextErrs.price = 'Цена от 100 до 10 000 ₽';
+    }
+
+    if (!description.trim() || description.trim().length < 10) {
+      nextErrs.description = 'Добавьте описание сюжета (минимум 10 символов)';
+    }
+
+    if (!dateFrom || !dateTo) {
+      nextErrs.dates = 'Укажите обе даты периода проката';
+    } else if (dateFrom > dateTo) {
+      nextErrs.dates = 'Дата начала проката не может быть позже даты окончания';
+    }
+
     if (sessions.length === 0) {
-      setFormError('Добавьте хотя бы один сеанс для фильма');
-      return;
+      nextErrs.sessions = 'Добавьте хотя бы один сеанс для фильма';
+    } else if (collisionList.length > 0) {
+      nextErrs.sessions = 'Устраните пересечения сеансов в одном зале';
     }
-    if (collisionList.length > 0) {
-      setFormError('Устраните пересечения сеансов в одном зале перед сохранением');
+
+    if (Object.values(nextErrs).some(Boolean)) {
+      setFieldErrors(nextErrs);
+      setFormError('Проверьте правильность заполнения формы');
       return;
     }
 
-    const movieId = `movie-${Date.now()}`;
+    const movieId = initialMovie?.id || `movie-${Date.now()}`;
     const minPrice = Math.min(...sessions.map((s) => s.price));
+    const computedDates = formatDatesFromRange(dateFrom, dateTo);
 
-    const newMovie: Movie = {
+    const savedMovie: Movie = {
       id: movieId,
       title: title.trim(),
       age,
       duration: formatDurationText(durationMinutes),
       durationMinutes,
-      genre: genre.trim() || 'Приключения / Драма',
-      rating: '8.5',
-      description:
-        description.trim() ||
-        `${title} — новая премьера в сети кинотеатров «Киномакс». Захватывающий сюжет и великолепные визуальные эффекты.`,
+      genre: genre.trim(),
+      rating: initialMovie?.rating || '8.5',
+      description: description.trim(),
       priceFrom: minPrice,
-      dates: ['Сегодня', 'Завтра', '23 окт.'],
-      bannerGradient: 'from-pink-900 via-neutral-900 to-neutral-950',
-      posterBg: posterBg || '#221c2c',
+      dates: computedDates,
+      dateFrom,
+      dateTo,
+      bannerGradient: initialMovie?.bannerGradient || 'from-[#0B353A] to-[#005C53]',
+      posterBg: posterBg || '#0B353A',
       posterImage: posterImage || undefined,
       tagColor: '#005C53',
       hallId: selectedHallId,
@@ -313,23 +392,24 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
       })),
     };
 
-    onAddMovie(newMovie);
+    onSaveMovie(savedMovie);
   };
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto p-4 space-y-5 text-white pb-24">
-      {/* Title */}
-      <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+      <div className="flex items-center justify-between pb-3 border-b border-[#1A383D]">
         <div>
-          <h2 className="text-base font-black text-white">Добавление фильма</h2>
-          <p className="text-[11px] text-neutral-400">
+          <h2 className="text-base font-black text-white">
+            {isEditing ? 'Редактирование фильма' : 'Добавление фильма'}
+          </h2>
+          <p className="text-[11px] text-[#A8D3CF]">
             Заполните параметры, выберите зал и настройте сеансы
           </p>
         </div>
         <button
           type="button"
           onClick={onCancel}
-          className="text-xs text-neutral-400 hover:text-white px-2.5 py-1 rounded-lg bg-neutral-800 cursor-pointer"
+          className="text-xs text-[#A8D3CF] hover:text-white px-2.5 py-1 rounded-lg bg-[#143238] cursor-pointer"
         >
           Отмена
         </button>
@@ -342,125 +422,126 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
         </div>
       )}
 
-      {/* Preset Poster Selector */}
-      <div className="space-y-2">
-        <label className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
-          <Sparkles size={13} className="text-[#005C53]" />
-          <span>Быстрый выбор популярной премьеры</span>
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          {PRESET_POSTERS.map((preset, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => handleSelectPreset(preset)}
-              className="p-2 bg-[#1A1A1E] border border-neutral-800 hover:border-[#005C53] rounded-xl flex items-center gap-2.5 text-left transition-all cursor-pointer group"
-            >
-              <img
-                src={preset.url}
-                alt={preset.title}
-                className="w-9 h-12 object-cover rounded-md shrink-0 group-hover:scale-105 transition-transform"
-              />
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-white truncate">{preset.title}</div>
-                <div className="text-[10px] text-neutral-400 truncate">{preset.age} • {preset.duration} мин</div>
-              </div>
-            </button>
-          ))}
+      {!isEditing && (
+        <div className="space-y-2">
+          <label className="text-[11px] font-bold uppercase tracking-wider text-[#A8D3CF] flex items-center gap-1.5">
+            <Sparkles size={13} className="text-[#78C5BC]" />
+            <span>Быстрый выбор популярной премьеры</span>
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {PRESET_POSTERS.map((preset, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleSelectPreset(preset)}
+                className="p-2 bg-[#11292E] border border-[#1A383D] hover:border-[#005C53] rounded-xl flex items-center gap-2.5 text-left transition-all cursor-pointer group"
+              >
+                <img
+                  src={preset.url}
+                  alt={preset.title}
+                  className="w-9 h-12 object-cover rounded-md shrink-0 group-hover:scale-105 transition-transform"
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-white truncate">{preset.title}</div>
+                  <div className="text-[10px] text-[#A8D3CF] truncate">
+                    {preset.age} • {preset.duration} мин
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
         {/* Section 1: Movie Data */}
-        <div className="bg-[#1A1A1E] border border-neutral-800 rounded-2xl p-4 space-y-3.5 shadow-lg">
-          <div className="text-xs font-black uppercase tracking-wider text-pink-400">
+        <div className="bg-[#11292E] border border-[#1A383D] rounded-2xl p-4 space-y-3.5 shadow-lg">
+          <div className="text-xs font-black uppercase tracking-wider text-[#78C5BC]">
             1. Данные о фильме
           </div>
 
-          {/* Title */}
           <div>
-            <label className="block text-[11px] font-bold text-neutral-400 mb-1">
+            <label className="block text-[11px] font-bold text-[#A8D3CF] mb-1">
               Название фильма *
             </label>
             <input
               type="text"
-              required
               placeholder="Например, Гладиатор 2"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-[#121214] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53]"
+              onChange={(e) => {
+                setTitle(e.target.value);
+                if (fieldErrors.title) setFieldErrors({ ...fieldErrors, title: null });
+              }}
+              className={`w-full bg-[#0A1E22] border rounded-xl px-3 py-2 text-xs text-white focus:outline-none ${
+                fieldErrors.title ? 'border-red-500' : 'border-[#1A383D] focus:border-[#005C53]'
+              }`}
             />
+            {fieldErrors.title && <p className="text-[10px] text-red-400 mt-1">{fieldErrors.title}</p>}
           </div>
 
-          {/* Poster File Upload & Preview */}
           <div>
-            <label className="block text-[11px] font-bold text-neutral-400 mb-1.5">
+            <label className="block text-[11px] font-bold text-[#A8D3CF] mb-1.5">
               Изображение / Постер
             </label>
             <div className="flex gap-3 items-center">
               {posterImage ? (
-                <div className="w-14 h-20 rounded-xl overflow-hidden shrink-0 border border-pink-500/40 relative">
-                  <img
-                    src={posterImage}
-                    alt="Постер"
-                    className="w-full h-full object-cover"
-                  />
+                <div className="w-14 h-20 rounded-xl overflow-hidden shrink-0 border border-[#005C53] relative">
+                  <img src={posterImage} alt="Постер" className="w-full h-full object-cover" />
                   <button
                     type="button"
                     onClick={() => setPosterImage('')}
-                    className="absolute top-1 right-1 w-5 h-5 bg-black/80 rounded-full flex items-center justify-center text-white text-[10px]"
+                    className="absolute top-1 right-1 w-5 h-5 bg-black/80 rounded-full flex items-center justify-center text-white text-[10px] cursor-pointer"
                   >
                     ✕
                   </button>
                 </div>
               ) : (
-                <div className="w-14 h-20 rounded-xl bg-neutral-900 border border-dashed border-neutral-700 flex flex-col items-center justify-center text-neutral-500 text-center p-1">
+                <div className="w-14 h-20 rounded-xl bg-[#0A1E22] border border-dashed border-[#1A383D] flex flex-col items-center justify-center text-[#78C5BC]/70 text-center p-1">
                   <Film size={18} />
                   <span className="text-[8px] mt-1">Нет фото</span>
                 </div>
               )}
 
               <div className="flex-1 space-y-1.5">
-                <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-xl text-xs font-semibold cursor-pointer transition-colors border border-neutral-700/60">
-                  <Upload size={14} className="text-[#005C53]" />
+                <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-[#143238] hover:bg-[#1A424A] rounded-xl text-xs font-semibold cursor-pointer transition-colors border border-[#1A383D]">
+                  <Upload size={14} className="text-[#78C5BC]" />
                   <span>Загрузить постер с устройства</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
+                  <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
                 </label>
-                <div className="text-[10px] text-neutral-400">
-                  Поддерживаются форматы JPG, PNG, WebP
+                <div className="text-[10px] text-[#A8D3CF]">
+                  Поддерживаются форматы JPG, PNG, WebP (до 5 МБ)
                 </div>
+                {fieldErrors.poster && (
+                  <p className="text-[10px] text-red-400">{fieldErrors.poster}</p>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Genre and Age */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-bold text-neutral-400 mb-1">
-                Жанр
-              </label>
+              <label className="block text-[11px] font-bold text-[#A8D3CF] mb-1">Жанр *</label>
               <input
                 type="text"
                 placeholder="Боевик / Драма"
                 value={genre}
-                onChange={(e) => setGenre(e.target.value)}
-                className="w-full bg-[#121214] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53]"
+                onChange={(e) => {
+                  setGenre(e.target.value);
+                  if (fieldErrors.genre) setFieldErrors({ ...fieldErrors, genre: null });
+                }}
+                className={`w-full bg-[#0A1E22] border rounded-xl px-3 py-2 text-xs text-white focus:outline-none ${
+                  fieldErrors.genre ? 'border-red-500' : 'border-[#1A383D] focus:border-[#005C53]'
+                }`}
               />
+              {fieldErrors.genre && <p className="text-[10px] text-red-400 mt-1">{fieldErrors.genre}</p>}
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-neutral-400 mb-1">
-                Возраст
-              </label>
+              <label className="block text-[11px] font-bold text-[#A8D3CF] mb-1">Возраст</label>
               <select
                 value={age}
                 onChange={(e) => setAge(e.target.value)}
-                className="w-full bg-[#121214] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53]"
+                className="w-full bg-[#0A1E22] border border-[#1A383D] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53]"
               >
                 <option value="0+">0+</option>
                 <option value="6+">6+</option>
@@ -471,120 +552,136 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
             </div>
           </div>
 
-          {/* Duration (minutes) and Base Price */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-bold text-neutral-400">
-                  Длительность
-                </label>
-                <span className="text-[10px] font-mono text-pink-400 font-bold">
-                  {formatDurationText(durationMinutes)}
+                <label className="text-[11px] font-bold text-[#A8D3CF]">Длительность (мин) *</label>
+                <span className="text-[10px] font-mono text-[#78C5BC] font-bold">
+                  {formatDurationText(durationMinutes || 0)}
                 </span>
               </div>
               <input
                 type="number"
                 min={30}
                 max={300}
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(parseInt(e.target.value) || 120)}
-                className="w-full bg-[#121214] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53]"
+                value={durationMinutes || ''}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setDurationMinutes(isNaN(val) ? 0 : val);
+                  if (fieldErrors.duration) setFieldErrors({ ...fieldErrors, duration: null });
+                }}
+                className={`w-full bg-[#0A1E22] border rounded-xl px-3 py-2 text-xs text-white focus:outline-none ${
+                  fieldErrors.duration ? 'border-red-500' : 'border-[#1A383D] focus:border-[#005C53]'
+                }`}
               />
+              {fieldErrors.duration && (
+                <p className="text-[10px] text-red-400 mt-1">{fieldErrors.duration}</p>
+              )}
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-neutral-400 mb-1">
-                Базовая цена (₽)
+              <label className="block text-[11px] font-bold text-[#A8D3CF] mb-1">
+                Базовая цена (₽) *
               </label>
               <input
                 type="number"
                 min={100}
-                max={5000}
-                value={basePrice}
-                onChange={(e) => setBasePrice(parseInt(e.target.value) || 350)}
-                className="w-full bg-[#121214] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53]"
+                max={10000}
+                value={basePrice || ''}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setBasePrice(isNaN(val) ? 0 : val);
+                  if (fieldErrors.price) setFieldErrors({ ...fieldErrors, price: null });
+                }}
+                className={`w-full bg-[#0A1E22] border rounded-xl px-3 py-2 text-xs text-white focus:outline-none ${
+                  fieldErrors.price ? 'border-red-500' : 'border-[#1A383D] focus:border-[#005C53]'
+                }`}
               />
+              {fieldErrors.price && <p className="text-[10px] text-red-400 mt-1">{fieldErrors.price}</p>}
             </div>
           </div>
 
-          {/* Description */}
           <div>
-            <label className="block text-[11px] font-bold text-neutral-400 mb-1">
-              Описание сюжета
+            <label className="block text-[11px] font-bold text-[#A8D3CF] mb-1">
+              Описание сюжета *
             </label>
             <textarea
               rows={2}
-              placeholder="Краткое описание фильма для гостей кинотеатра..."
+              placeholder="Краткое описание фильма для гостей кинотеатра (мин. 10 символов)..."
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-[#121214] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53] resize-none"
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (fieldErrors.description) setFieldErrors({ ...fieldErrors, description: null });
+              }}
+              className={`w-full bg-[#0A1E22] border rounded-xl px-3 py-2 text-xs text-white focus:outline-none resize-none ${
+                fieldErrors.description ? 'border-red-500' : 'border-[#1A383D] focus:border-[#005C53]'
+              }`}
             />
+            {fieldErrors.description && (
+              <p className="text-[10px] text-red-400 mt-1">{fieldErrors.description}</p>
+            )}
           </div>
         </div>
 
         {/* Section 2: Screening Dates Range */}
-        <div className="bg-[#1A1A1E] border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-lg">
-          <div className="text-xs font-black uppercase tracking-wider text-pink-400 flex items-center justify-between">
+        <div className="bg-[#11292E] border border-[#1A383D] rounded-2xl p-4 space-y-3 shadow-lg">
+          <div className="text-xs font-black uppercase tracking-wider text-[#78C5BC] flex items-center justify-between">
             <span>2. Период проката фильма</span>
             <Calendar size={14} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-bold text-neutral-400 mb-1">
-                Дата начала (С)
-              </label>
+              <label className="block text-[11px] font-bold text-[#A8D3CF] mb-1">Дата начала (С) *</label>
               <input
                 type="date"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full bg-[#121214] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53]"
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  if (fieldErrors.dates) setFieldErrors({ ...fieldErrors, dates: null });
+                }}
+                className={`w-full bg-[#0A1E22] border rounded-xl px-3 py-2 text-xs text-white focus:outline-none ${
+                  fieldErrors.dates ? 'border-red-500' : 'border-[#1A383D] focus:border-[#005C53]'
+                }`}
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-neutral-400 mb-1">
-                Дата окончания (По)
-              </label>
+              <label className="block text-[11px] font-bold text-[#A8D3CF] mb-1">Дата окончания (По) *</label>
               <input
                 type="date"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full bg-[#121214] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#005C53]"
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  if (fieldErrors.dates) setFieldErrors({ ...fieldErrors, dates: null });
+                }}
+                className={`w-full bg-[#0A1E22] border rounded-xl px-3 py-2 text-xs text-white focus:outline-none ${
+                  fieldErrors.dates ? 'border-red-500' : 'border-[#1A383D] focus:border-[#005C53]'
+                }`}
               />
             </div>
           </div>
 
-          {/* Quick presets for range */}
+          {fieldErrors.dates && <p className="text-[10px] text-red-400">{fieldErrors.dates}</p>}
+
           <div className="flex items-center gap-2 pt-1">
-            <span className="text-[10px] text-neutral-400">Быстро:</span>
-            <button
-              type="button"
-              onClick={() => handleDatePreset(7)}
-              className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-[10px] cursor-pointer"
-            >
-              +7 дней
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDatePreset(14)}
-              className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-[10px] cursor-pointer"
-            >
-              +14 дней
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDatePreset(30)}
-              className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-[10px] cursor-pointer"
-            >
-              +1 месяц
-            </button>
+            <span className="text-[10px] text-[#A8D3CF]">Быстро:</span>
+            {[7, 14, 30].map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => handleDatePreset(d)}
+                className="px-2 py-1 bg-[#143238] hover:bg-[#1A424A] text-[#A8D3CF] rounded-lg text-[10px] cursor-pointer"
+              >
+                +{d === 30 ? '1 месяц' : `${d} дней`}
+              </button>
+            ))}
           </div>
         </div>
 
         {/* Section 3: Cinema Hall Assignment */}
-        <div className="bg-[#1A1A1E] border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-lg">
-          <div className="text-xs font-black uppercase tracking-wider text-pink-400">
+        <div className="bg-[#11292E] border border-[#1A383D] rounded-2xl p-4 space-y-3 shadow-lg">
+          <div className="text-xs font-black uppercase tracking-wider text-[#78C5BC]">
             3. Назначение кинозала
           </div>
 
@@ -596,36 +693,32 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
                 <button
                   key={h.id}
                   type="button"
-                  onClick={() => setSelectedHallId(h.id)}
+                  onClick={() => handleHallSelect(h)}
                   className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
                     isSelected
-                      ? 'bg-[#291724] border-[#005C53] shadow-md shadow-pink-900/30'
-                      : 'bg-[#121214] border-neutral-800 hover:border-neutral-700'
+                      ? 'bg-[#0B353A] border-[#005C53] shadow-md'
+                      : 'bg-[#0A1E22] border-[#1A383D] hover:border-[#005C53]/60'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-3 h-3 rounded-full ${
-                        isSelected ? 'bg-[#005C53]' : 'bg-neutral-700'
-                      }`}
+                      className={`w-3 h-3 rounded-full ${isSelected ? 'bg-[#78C5BC]' : 'bg-neutral-700'}`}
                     />
                     <div>
                       <div className="text-xs font-bold text-white flex items-center gap-2">
                         <span>{h.name}</span>
-                        <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-neutral-800 text-pink-300">
+                        <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-[#143238] text-[#78C5BC]">
                           {h.type}
                         </span>
                       </div>
-                      <div className="text-[11px] text-neutral-400 mt-0.5">
+                      <div className="text-[11px] text-[#A8D3CF] mt-0.5">
                         {h.rows} рядов × {h.seatsPerRow} мест ({seats} мест)
                       </div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-bold text-pink-400">
-                      +{h.priceModifier} ₽
-                    </div>
-                    <div className="text-[10px] text-neutral-500">к билету</div>
+                    <div className="text-xs font-bold text-[#78C5BC]">+{h.priceModifier} ₽</div>
+                    <div className="text-[10px] text-[#A8D3CF]">к билету</div>
                   </div>
                 </button>
               );
@@ -633,37 +726,36 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
           </div>
         </div>
 
-        {/* Section 4: Showtime Scheduler with Duration Collision Logic */}
-        <div className="bg-[#1A1A1E] border border-neutral-800 rounded-2xl p-4 space-y-3.5 shadow-lg">
+        {/* Section 4: Showtime Scheduler */}
+        <div className="bg-[#11292E] border border-[#1A383D] rounded-2xl p-4 space-y-3.5 shadow-lg">
           <div className="flex items-center justify-between">
-            <div className="text-xs font-black uppercase tracking-wider text-pink-400 flex items-center gap-1.5">
+            <div className="text-xs font-black uppercase tracking-wider text-[#78C5BC] flex items-center gap-1.5">
               <Clock size={14} />
               <span>4. Расписание сеансов</span>
             </div>
             <button
               type="button"
               onClick={handleAutoGenerateShowtimes}
-              className="text-[10px] font-bold text-white bg-gradient-to-r from-pink-600 to-purple-600 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm hover:opacity-90 cursor-pointer"
+              className="text-[10px] font-bold text-white bg-[#005C53] hover:bg-[#046C62] px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm cursor-pointer"
             >
               <Sparkles size={11} />
               <span>Авто-расписание</span>
             </button>
           </div>
 
-          {/* Duration rule callout */}
-          <div className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-xl text-[11px] space-y-1">
-            <div className="text-neutral-300 font-semibold flex items-center gap-1.5">
-              <Info size={13} className="text-[#005C53]" />
-              <span>Расчет тайминга с учетом длительности:</span>
+          <div className="p-3 bg-[#0A1E22] border border-[#1A383D] rounded-xl text-[11px] space-y-1">
+            <div className="text-white font-semibold flex items-center gap-1.5">
+              <Info size={13} className="text-[#78C5BC]" />
+              <span>Расчёт тайминга с учётом длительности:</span>
             </div>
-            <div className="text-neutral-400">
-              Фильм длится <strong className="text-white">{durationMinutes} мин.</strong> + 15 мин. на уборку зала = блок <strong className="text-pink-400">{durationMinutes + 15} мин.</strong>
+            <div className="text-[#A8D3CF]">
+              Фильм <strong className="text-white">{durationMinutes || 0} мин.</strong> + 15 мин. уборка ={' '}
+              <strong className="text-[#78C5BC]">{(durationMinutes || 0) + 15} мин.</strong>
             </div>
           </div>
 
-          {/* Collision warnings */}
           {collisionList.length > 0 && (
-            <div className="p-3 bg-red-950/80 border border-red-500/70 rounded-xl space-y-1.5 animate-shake">
+            <div className="p-3 bg-red-950/80 border border-red-500/70 rounded-xl space-y-1.5">
               <div className="text-xs font-bold text-red-300 flex items-center gap-1.5">
                 <AlertTriangle size={14} className="text-red-400 shrink-0" />
                 <span>Конфликт расписания!</span>
@@ -676,36 +768,41 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
             </div>
           )}
 
-          {/* Current Sessions List */}
+          {fieldErrors.sessions && (
+            <p className="text-[11px] text-red-400 font-medium">{fieldErrors.sessions}</p>
+          )}
+
           <div className="space-y-2">
-            <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+            <div className="text-[11px] font-bold text-[#A8D3CF] uppercase tracking-wider">
               Назначенные сеансы ({sessions.length})
             </div>
 
             {sessions.length === 0 ? (
-              <div className="p-4 text-center text-xs text-neutral-500 bg-[#121214] rounded-xl">
-                Сеансы еще не добавлены
+              <div className="p-4 text-center text-xs text-[#78C5BC]/70 bg-[#0A1E22] rounded-xl">
+                Сеансы ещё не добавлены
               </div>
             ) : (
               sessions.map((s) => {
-                const endTime = calculateEndTime(s.time, durationMinutes);
+                const endTime = calculateEndTime(s.time, durationMinutes || 120);
                 return (
                   <div
                     key={s.id}
-                    className="p-2.5 bg-[#121214] border border-neutral-800/80 rounded-xl flex items-center justify-between"
+                    className="p-2.5 bg-[#0A1E22] border border-[#1A383D] rounded-xl flex items-center justify-between"
                   >
                     <div className="flex items-center gap-2.5">
-                      <div className="px-2 py-1 rounded-lg bg-pink-950/50 border border-pink-500/30 text-white font-mono text-xs font-bold">
+                      <div className="px-2 py-1 rounded-lg bg-[#0B353A] border border-[#005C53] text-white font-mono text-xs font-bold">
                         {s.time}
                       </div>
                       <div>
                         <div className="text-[11px] font-semibold text-white flex items-center gap-1.5">
-                          <span>{s.time} – {endTime}</span>
-                          <span className="text-[9px] px-1 py-0.2 rounded bg-neutral-800 text-pink-300">
+                          <span>
+                            {s.time} – {endTime}
+                          </span>
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-[#143238] text-[#78C5BC]">
                             {s.format}
                           </span>
                         </div>
-                        <div className="text-[10px] text-neutral-400">
+                        <div className="text-[10px] text-[#A8D3CF]">
                           {s.hallName} • {s.price} ₽
                         </div>
                       </div>
@@ -724,22 +821,22 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
             )}
           </div>
 
-          {/* Add New Session Row */}
-          <div className="pt-2 border-t border-neutral-800/80 space-y-2">
-            <div className="text-[11px] font-bold text-neutral-400">
-              Добавить сеанс вручную:
-            </div>
+          <div className="pt-2 border-t border-[#1A383D] space-y-2">
+            <div className="text-[11px] font-bold text-[#A8D3CF]">Добавить сеанс вручную:</div>
             <div className="flex items-center gap-2">
               <input
                 type="time"
                 value={newSessionTime}
-                onChange={(e) => setNewSessionTime(e.target.value)}
-                className="bg-[#121214] border border-neutral-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#005C53]"
+                onChange={(e) => {
+                  setNewSessionTime(e.target.value);
+                  if (sessionError) setSessionError(null);
+                }}
+                className="bg-[#0A1E22] border border-[#1A383D] rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#005C53]"
               />
               <select
                 value={newSessionFormat}
-                onChange={(e) => setNewSessionFormat(e.target.value as any)}
-                className="bg-[#121214] border border-neutral-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#005C53]"
+                onChange={(e) => setNewSessionFormat(e.target.value as '2D' | '3D' | 'IMAX')}
+                className="bg-[#0A1E22] border border-[#1A383D] rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#005C53]"
               >
                 <option value="2D">2D</option>
                 <option value="3D">3D</option>
@@ -748,22 +845,22 @@ export const AdminAddMovie: React.FC<AdminAddMovieProps> = ({
               <button
                 type="button"
                 onClick={handleAddSession}
-                className="flex-1 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                className="flex-1 py-1.5 bg-[#143238] hover:bg-[#1A424A] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
               >
                 <Plus size={14} />
                 <span>Добавить</span>
               </button>
             </div>
+            {sessionError && <p className="text-[10px] text-red-400 mt-1">{sessionError}</p>}
           </div>
         </div>
 
-        {/* Save CTA */}
         <button
           type="submit"
-          className="w-full py-3.5 bg-[#005C53] hover:bg-[#046C62] active:scale-98 text-white font-bold rounded-2xl text-xs transition-all shadow-lg shadow-pink-900/40 cursor-pointer flex items-center justify-center gap-2"
+          className="w-full py-3.5 bg-[#005C53] hover:bg-[#046C62] active:scale-98 text-white font-bold rounded-2xl text-xs transition-all shadow-lg shadow-teal-950/40 cursor-pointer flex items-center justify-center gap-2"
         >
           <Check size={16} />
-          <span>Опубликовать фильм в расписание</span>
+          <span>{isEditing ? 'Сохранить изменения фильма' : 'Опубликовать фильм в расписание'}</span>
         </button>
       </form>
     </div>

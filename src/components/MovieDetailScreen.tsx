@@ -1,23 +1,29 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Play, X, Heart, Share2 } from 'lucide-react';
+import { ArrowLeft, Play, X, Heart, Share2, CheckCircle2 } from 'lucide-react';
 import type { Movie } from '../data/mockData';
 import { MoviePoster } from './MoviePoster';
 
 interface MovieDetailScreenProps {
   movie: Movie;
+  isLiked?: boolean;
+  onToggleFavorite?: (movieId: string) => void;
   onBack: () => void;
   onSelectSeats: (date: string, showtime: Movie['showtimes'][0]) => void;
 }
 
 export const MovieDetailScreen: React.FC<MovieDetailScreenProps> = ({
   movie,
+  isLiked = false,
+  onToggleFavorite,
   onBack,
   onSelectSeats,
 }) => {
   const [selectedDate, setSelectedDate] = useState(movie.dates[0] || 'Сегодня');
-  const [selectedShowtimeIndex, setSelectedShowtimeIndex] = useState(1); // default to second showtime (12:40)
+  const [selectedShowtimeIndex, setSelectedShowtimeIndex] = useState(
+    movie.showtimes.length > 1 ? 1 : 0
+  );
   const [isTrailerOpen, setIsTrailerOpen] = useState(false);
-  const [isLiked, setIsLiked] = useState(false);
+  const [copiedToast, setCopiedToast] = useState(false);
 
   const selectedShowtime = movie.showtimes[selectedShowtimeIndex] || movie.showtimes[0];
 
@@ -35,20 +41,21 @@ export const MovieDetailScreen: React.FC<MovieDetailScreenProps> = ({
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsLiked(!isLiked)}
+            onClick={() => onToggleFavorite?.(movie.id)}
             className={`w-8 h-8 rounded-full bg-white border border-[#EAE7DF] flex items-center justify-center transition-colors cursor-pointer ${
               isLiked ? 'text-[#005C53]' : 'text-[#7A7A7A] hover:text-[#1A1A1A]'
             }`}
+            title={isLiked ? 'Убрать из избранного' : 'В избранное'}
           >
             <Heart size={16} fill={isLiked ? '#005C53' : 'none'} />
           </button>
           <button
             onClick={() => {
-              if (navigator.share) {
-                navigator.share({ title: movie.title, url: window.location.href }).catch(() => {});
-              } else {
-                alert('Ссылка на фильм скопирована');
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(window.location.href).catch(() => {});
               }
+              setCopiedToast(true);
+              setTimeout(() => setCopiedToast(false), 2000);
             }}
             className="w-8 h-8 rounded-full bg-white border border-[#EAE7DF] text-[#7A7A7A] hover:text-[#1A1A1A] flex items-center justify-center transition-colors cursor-pointer"
           >
@@ -56,6 +63,13 @@ export const MovieDetailScreen: React.FC<MovieDetailScreenProps> = ({
           </button>
         </div>
       </div>
+
+      {copiedToast && (
+        <div className="mx-4 mt-2 p-2.5 bg-[#EBF3F2] border border-[#005C53]/30 rounded-xl text-xs text-[#005C53] font-bold flex items-center gap-2 animate-fade-in z-20">
+          <CheckCircle2 size={14} className="shrink-0" />
+          <span>Ссылка на фильм скопирована</span>
+        </div>
+      )}
 
       {/* Scrollable details content matching Figma Screen 13 */}
       <div className="flex-1 overflow-y-auto pb-24">

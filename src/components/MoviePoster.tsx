@@ -25,18 +25,24 @@ export const MoviePoster: React.FC<MoviePosterProps> = ({
   title,
   className = '',
 }) => {
-  const [hasError, setHasError] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
-  // Priority: 1. explicit posterImage prop, 2. preset from movieId
-  const posterSrc = posterImage || (movieId ? POSTER_PRESETS[movieId] : undefined);
+  const presetSrc = movieId ? POSTER_PRESETS[movieId] : undefined;
+  let posterSrc: string | undefined = undefined;
+  if (posterImage && failedSrc !== posterImage) {
+    posterSrc = posterImage;
+  } else if (presetSrc && failedSrc !== presetSrc) {
+    posterSrc = presetSrc;
+  }
 
-  if (posterSrc && !hasError) {
+  if (posterSrc) {
+    const activeSrc = posterSrc;
     return (
-      <div className={`overflow-hidden rounded-xl bg-neutral-900 relative ${className}`}>
+      <div className={`overflow-hidden rounded-xl bg-[#0B353A] relative ${className}`}>
         <img
-          src={posterSrc}
+          src={activeSrc}
           alt={title || 'Постер'}
-          onError={() => setHasError(true)}
+          onError={() => setFailedSrc(activeSrc)}
           className="w-full h-full object-cover select-none block"
           loading="eager"
         />
@@ -44,18 +50,18 @@ export const MoviePoster: React.FC<MoviePosterProps> = ({
     );
   }
 
-  // Fallback to stylized cinema poster with movie title
+  // Fallback to stylized cinema poster with КАДР colors
   return (
     <div
-      className={`overflow-hidden rounded-xl bg-gradient-to-br from-[#2a1727] via-[#1c1a24] to-[#121216] border border-pink-500/20 flex flex-col items-center justify-center p-2 text-center relative ${className}`}
+      className={`overflow-hidden rounded-xl bg-gradient-to-br from-[#0B353A] via-[#0E4349] to-[#06262A] border border-[#005C53]/40 flex flex-col items-center justify-center p-2 text-center relative ${className}`}
     >
-      <div className="w-8 h-8 rounded-full bg-[#E52E84]/20 flex items-center justify-center text-[#E52E84] mb-1.5 shrink-0">
+      <div className="w-8 h-8 rounded-full bg-[#005C53]/30 flex items-center justify-center text-[#78C5BC] mb-1.5 shrink-0">
         <Film size={16} />
       </div>
-      <span className="text-[10px] font-black tracking-wide text-white/90 line-clamp-2 uppercase">
-        {title || 'КИНОМАКС'}
+      <span className="text-[10px] font-black tracking-wide text-white/95 line-clamp-2 uppercase">
+        {title || 'КАДР'}
       </span>
-      <span className="text-[8px] font-bold text-[#E52E84] mt-0.5 tracking-widest">
+      <span className="text-[8px] font-bold text-[#78C5BC] mt-0.5 tracking-widest">
         ПРЕМЬЕРА
       </span>
     </div>
